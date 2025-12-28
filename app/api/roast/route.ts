@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// REMOVED: const groq = new Groq(...) from here to prevent build errors
 
-// This defines the "System Prompt" - the personality of the AI
 const SYSTEM_PROMPT = `
 You are a professional roast master and meme generator.
 Your goal is to look at the user's uploaded screen (calendar, desktop, code, etc.) and ruthlessly judge them.
@@ -30,13 +29,28 @@ BEHAVIOR:
 
 export async function POST(req: Request) {
   try {
-    const { image } = await req.json();
+    // --- 🛠️ THE FIX IS HERE ---
+    // We initialize the client INSIDE the function. 
+    // The "|| 'dummy'" part prevents Vercel from crashing during the build process if the key isn't found.
+    const groq = new Groq({ 
+      apiKey: process.env.GROQ_API_KEY || "dummy_key_for_build" 
+    });
+
+    // Validating the key exists before making the actual call
+    if (!process.env.GROQ_API_KEY) {
+      console.error("Missing API Key on server");
+      return NextResponse.json({ error: "Server API Key missing" }, { status: 500 });
+    }
+    // ---------------------------
+
+    const body = await req.json();
+    const { image } = body;
 
     if (!image) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
     }
 
-    // Send to Groq (Llama 3.2 Vision)
+    // Send to Groq (Llama 4 Scout)
     const completion = await groq.chat.completions.create({
       messages: [
         {
@@ -50,7 +64,7 @@ export async function POST(req: Request) {
       model: "meta-llama/llama-4-scout-17b-16e-instruct",
       temperature: 0.7,
       max_tokens: 1024,
-      response_format: { type: "json_object" }, // Forces valid JSON
+      response_format: { type: "json_object" },
     });
 
     const content = completion.choices[0].message.content;
@@ -58,7 +72,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(jsonResponse);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Roast Error:", error);
     return NextResponse.json({ error: "Failed to roast" }, { status: 500 });
   }
